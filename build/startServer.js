@@ -19,8 +19,6 @@ export async function startServer(transportType, server) {
                 await transport.handlePostMessage(req, res);
             }
         });
-        app.listen(port, () => {
-            console.log(`SSE server started on http://localhost:${port}/sse`);
-        });
+        app.listen(port);
     }
 }

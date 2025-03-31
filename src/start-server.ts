@@ -24,8 +24,6 @@ export async function startServer(transportType: "stdio" | "sse", server: McpSer
       }
     })
 
-    app.listen(port, () => {
-      console.log(`SSE server started on http://localhost:${port}/sse`);
-    });
+    app.listen(port);
   }
 }
