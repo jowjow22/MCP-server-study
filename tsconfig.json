@@ -1,14 +1,14 @@
 {
   "compilerOptions": {
     "lib": ["es2023"],
-    "module": "nodenext",
-    "target": "es2022",
+    "module": "NodeNext",
+    "target": "ESNext",
     "outDir": "./build",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "moduleResolution": "node16"
+    "moduleResolution": "nodenext",
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
