@@ -1,13 +1,18 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { startServer } from "./utils/start-server.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { z } from "zod";
-import { sentryController } from "./controllers/sentry/sentry.controller.js";
-import { mondayController } from "./controllers/monday/monday.controller.js";
-const server = new McpServer({
+import { PROMPTS, prompt_mapping } from "./prompts/index.js";
+import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { tools as sentry_tools, tools_functions_mapping as sentry_tools_functions_mapping, tools_schemas as sentry_tools_schemas } from "./tools/sentry/index.js";
+import { tools as monday_tools, tools_functions_mapping as monday_tools_functions_mapping, tools_schemas as monday_tools_schemas } from "./tools/monday/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+
+const server = new Server({
   name: "sentry-monday-integration",
   version: "1.0.0",
+}, {
   capabilities: {
-    resources: {},
+    resources: {
+    },
     tools: {
       sentry_get_organizations: {
         description: "Get all organizations from Sentry",
@@ -73,128 +78,59 @@ const server = new McpServer({
         }),
       },
     },
+    prompts: {
+      list: true,
+      get: true,
+    }
   },
 });
 
-server.tool("sentry_get_organizations", async () => {
-  return await sentryController.getOrganizations();
+ server.setRequestHandler(ListPromptsRequestSchema, async (request) => {
+  return {
+    prompts: Object.values(PROMPTS)
+  };
 });
 
-server.tool(
-  "sentry_get_projects",
-  {
-    org_id: z.string().describe("the id of the organization"),
-  },
-  async ({ org_id }: { org_id: string }) => {
-    return await sentryController.getProjects(org_id);
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const promptName = request.params.name;
+  const prompt = PROMPTS[promptName];
+  if (!prompt) {
+    throw new Error(`Prompt ${promptName} not found`);
   }
-);
+  const promptFunction = prompt_mapping[promptName](request.params.arguments as any);
+  return promptFunction;
+}); 
 
-server.tool(
-  "sentry_get_issues",
-  {
-    org_id: z.string().describe("the id of the organization"),
-    project_id: z.string().describe("the id of the project"),
-  },
-  async ({ org_id, project_id }: { org_id: string; project_id: string }) => {
-    return await sentryController.getIssues(org_id, project_id);
-  }
-);
-
-server.tool(
-  "sentry_get_last_event_hashes",
-  {
-    issue_id: z.string().describe("the id of the issue"),
-  },
-  async ({ issue_id }: { issue_id: string }) => {
-    return await sentryController.getLastEventHashes(issue_id);
-  }
-);
-
-server.tool(
-  "monday_get_boards",
-  {
-    limit: z.number().describe("limit of boards to be shown"),
-  },
-  async ({ limit }: { limit: number }) => {
-    return await mondayController.getBoards(limit);
-  }
-);
-
-server.tool(
-  "monday_get_groups",
-  {
-    board_id: z.string().describe("the id of the board"),
-  },
-  async ({ board_id }: { board_id: string }) => {
-    return await mondayController.getGroups(board_id);
-  }
-);
-
-server.tool(
-  "monday_get_columns",
-  {
-    board_id: z.string().describe("the id of the board"),
-  },
-  async ({ board_id }: { board_id: string }) => {
-    return await mondayController.getColumns(board_id);
-  }
-);
-
-server.tool(
-  "monday_get_columns_data",
-  {
-    board_id: z.string().describe("the id of the board"),
-  },
-  async ({ board_id }: { board_id: string }) => {
-    return await mondayController.getColumnsData(board_id);
-  }
-);
-
-server.tool(
-  "monday_create_item",
-  {
-    board_id: z.string().describe("the id of the board"),
-    group_id: z.string().describe("the id of the group"),
-    item_name: z.string().describe("the name of the item"),
-    description: z.string().describe("the description of the item"),
-    column_values: z
-      .record(z.string(), z.string())
-      .describe(
-        "the column values, the key is the column id and the value is the value of the column"
-      ),
-  },
-  async ({
-    board_id,
-    group_id,
-    item_name,
-    description,
-    column_values,
-  }: {
-    board_id: string;
-    group_id: string;
-    item_name: string;
-    column_values: { [key: string]: string };
-    description: string;
-  }) => {
-    return await mondayController.createItem(
-      board_id,
-      group_id,
-      item_name,
-      description,
-      column_values
-    );
-  }
-);
-
-const transportType = process.argv[2] === "sse" ? "sse" : "stdio";
-
-if (!transportType) {
-  console.error("Please provide a transport type: 'stdio' or 'sse'");
-  process.exit(1);
-}
-
-startServer(transportType, server).catch((error) => {
-  console.error("Error starting server:", error);
-  process.exit(1);
+server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+  return {
+    tools: Object.values({...sentry_tools, ...monday_tools})
+  };
 });
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const tools = { ...sentry_tools, ...monday_tools };
+  const tools_functions_mapping = { ...sentry_tools_functions_mapping, ...monday_tools_functions_mapping };
+  const tools_schemas = { ...sentry_tools_schemas, ...monday_tools_schemas };
+  const tool_name = request.params.name;
+  const tool = tools[tool_name];
+  
+  if (!tool) {
+    throw new Error(`Tool ${tool_name} not found`);
+  }
+
+  const tool_callback = tools_functions_mapping[tool_name];
+  if (!tool_callback) {
+    throw new Error(`Tool function ${tool_name} not found`);
+  }
+
+  try {
+    const params = tools_schemas[tool_name].parse(request.params.arguments);
+    const result = await tool_callback(params);
+    return result;
+  } catch (error) {
+    throw new Error(`Tool function ${tool_name} call failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+});
+
+const transport = new StdioServerTransport();
+server.connect(transport);
