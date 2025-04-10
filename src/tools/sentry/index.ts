@@ -19,9 +19,9 @@ export const tools: Record<string, Tool> = {
                 org_id: {
                     type: "string",
                     description: "The id of the organization"
-                }
+                },
             },
-            required: true
+            required: ["org_id"]
         }
     },
     "sentry_get_issues": {
