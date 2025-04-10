@@ -108,7 +108,7 @@ export const tools_schemas: Record<string, z.ZodSchema> = {
         group_id: z.string(),
         item_name: z.string(),
         description: z.string(),
-        column_values: z.record(z.string(), z.string())
+        column_values: z.record(z.string(), z.any())
     })
 }
 
